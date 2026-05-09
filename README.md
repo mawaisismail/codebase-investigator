@@ -47,7 +47,9 @@ python3 -m uvicorn app:app --host 127.0.0.1 --port 8000
 open http://127.0.0.1:8000
 ```
 
-Get a free Gemini API key at https://aistudio.google.com/apikey.
+Get a free Gemini API key at https://aistudio.google.com/apikey. There's also a "Get a Gemini key ↗" link in the UI.
+
+**Per-user keys (BYOK).** The UI has a settings bar at the top where any visitor can paste their own Gemini key. It's stored in their browser (`localStorage`) and sent only with their `/chat` requests; the server never persists it. If a per-request key is supplied, it overrides the server's `GEMINI_API_KEY` for that request — useful when you want to demo the app to someone without giving them your key.
 
 ### Quick sanity check (no API key)
 

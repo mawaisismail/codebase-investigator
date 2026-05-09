@@ -50,6 +50,10 @@ class CreateRepoBody(BaseModel):
 class ChatBody(BaseModel):
     session_id: str
     question: str
+    gemini_api_key: str | None = Field(
+        default=None,
+        description="Optional user-supplied Gemini key. Overrides the server's GEMINI_API_KEY for this request.",
+    )
 
 
 class ResetBody(BaseModel):
@@ -90,23 +94,42 @@ def create_repo(body: CreateRepoBody) -> dict[str, Any]:
     return session.repo_meta()
 
 
+def _resolve_client(user_key: str | None) -> genai.Client:
+    """Return a Gemini client. User-supplied keys take precedence over the
+    server's GEMINI_API_KEY. The user's key is NEVER persisted server-side."""
+    user_key = (user_key or "").strip()
+    if user_key:
+        try:
+            return genai.Client(api_key=user_key)
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Invalid Gemini API key: {e}")
+    if client is not None:
+        return client
+    raise HTTPException(
+        status_code=400,
+        detail=(
+            "No Gemini API key. Either set GEMINI_API_KEY on the server or paste "
+            "a key in the UI's settings bar."
+        ),
+    )
+
+
 @app.post("/chat")
 def chat(body: ChatBody) -> dict[str, Any]:
-    if client is None:
-        raise HTTPException(status_code=500, detail="Server has no GEMINI_API_KEY configured.")
     session = store.get(body.session_id)
     if session is None:
         raise HTTPException(status_code=404, detail="Unknown session_id (did the server restart?).")
     question = body.question.strip()
     if not question:
         raise HTTPException(status_code=400, detail="Empty question.")
+    chat_client = _resolve_client(body.gemini_api_key)
 
     session.turn_count += 1
     turn_idx = session.turn_count
 
     # 1. Investigator
     inv_run, next_history = investigator_mod.run_investigator(
-        client=client,
+        client=chat_client,
         model=GEMINI_MODEL,
         repo_root=session.repo.path,
         repo_slug=session.repo.slug,
@@ -129,7 +152,7 @@ def chat(body: ChatBody) -> dict[str, Any]:
 
     # 3. Auditor — separate call, fresh context
     audit = auditor_mod.run_auditor(
-        client=client,
+        client=chat_client,
         model=GEMINI_AUDITOR_MODEL,
         repo_root=session.repo.path,
         question=question,

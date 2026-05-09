@@ -50,6 +50,40 @@
     display: grid; grid-template-rows: auto 1fr auto; min-height: 0;
   }
 
+  .settings-bar {
+    padding: 8px 18px;
+    border-bottom: 1px solid var(--border);
+    display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+    background: var(--panel-2);
+    font-size: 12.5px;
+  }
+  .settings-bar label { color: var(--muted); }
+  .settings-bar input[type=password],
+  .settings-bar input[type=text].keyfield {
+    flex: 1; min-width: 240px; max-width: 460px;
+    background: var(--panel); color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 6px; padding: 5px 9px;
+    font: inherit; font-family: ui-monospace, monospace;
+  }
+  .settings-bar input:focus { outline: 1px solid var(--accent); border-color: var(--accent); }
+  .settings-bar .save-state {
+    color: var(--muted); font-size: 11.5px;
+  }
+  .settings-bar .save-state.ok { color: var(--good); }
+  .settings-bar a.getkey {
+    color: var(--accent); text-decoration: none;
+    border: 1px solid rgba(110,168,254,0.4);
+    border-radius: 4px; padding: 3px 8px;
+    background: rgba(110,168,254,0.06);
+  }
+  .settings-bar a.getkey:hover { background: rgba(110,168,254,0.12); }
+  .settings-bar button.tiny {
+    background: var(--panel); color: var(--text);
+    border: 1px solid var(--border);
+    font-size: 11.5px; padding: 4px 9px; font-weight: 500;
+  }
+
   .repo-bar {
     padding: 10px 18px;
     border-bottom: 1px solid var(--border);
@@ -179,6 +213,14 @@
 
 <div class="layout">
   <main>
+    <div class="settings-bar">
+      <label for="apiKey">Gemini key:</label>
+      <input id="apiKey" type="password" class="keyfield" placeholder="AIzaSy… (optional — leave blank to use server key)" autocomplete="off" spellcheck="false" />
+      <button id="saveKeyBtn" class="tiny">Save</button>
+      <button id="clearKeyBtn" class="tiny" title="Clear stored key from this browser">Clear</button>
+      <a class="getkey" href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">Get a Gemini key ↗</a>
+      <span id="keyState" class="save-state"></span>
+    </div>
     <div class="repo-bar">
       <input id="repoUrl" type="text" placeholder="https://github.com/owner/repo" autofocus />
       <button id="loadBtn">Load repo</button>
@@ -221,14 +263,43 @@
 const $ = (id) => document.getElementById(id);
 let sessionId = null;
 let pending = false;
+let serverHasKey = false;
+const KEY_STORAGE = 'codeinv_gemini_key';
+
+function getUserKey() {
+  return (localStorage.getItem(KEY_STORAGE) || '').trim();
+}
+function setUserKey(k) {
+  if (k) localStorage.setItem(KEY_STORAGE, k);
+  else localStorage.removeItem(KEY_STORAGE);
+  refreshKeyState();
+}
+function refreshKeyState() {
+  const k = getUserKey();
+  const state = $('keyState');
+  if (k) {
+    const masked = k.slice(0, 6) + '…' + k.slice(-4);
+    state.textContent = `using your key (${masked})`;
+    state.className = 'save-state ok';
+  } else if (serverHasKey) {
+    state.textContent = 'using server key';
+    state.className = 'save-state';
+  } else {
+    state.textContent = 'no key set — chat will fail';
+    state.className = 'save-state';
+    state.style.color = 'var(--bad)';
+    return;
+  }
+  state.style.color = '';
+}
 
 async function loadHealth() {
   try {
     const r = await fetch('/health');
     const j = await r.json();
-    $('health').textContent = j.api_key_set
-      ? `model: ${j.model}` + (j.auditor_model !== j.model ? ` · auditor: ${j.auditor_model}` : '')
-      : 'WARNING: GEMINI_API_KEY not set';
+    serverHasKey = !!j.api_key_set;
+    $('health').textContent = `model: ${j.model}` + (j.auditor_model !== j.model ? ` · auditor: ${j.auditor_model}` : '');
+    refreshKeyState();
   } catch { $('health').textContent = 'server unreachable'; }
 }
 
@@ -387,7 +458,10 @@ async function ask() {
   $('question').value = '';
   appendThinking();
   try {
-    const r = await fetch('/chat', { method: 'POST', headers: {'content-type':'application/json'}, body: JSON.stringify({ session_id: sessionId, question: q }) });
+    const userKey = getUserKey();
+    const payload = { session_id: sessionId, question: q };
+    if (userKey) payload.gemini_api_key = userKey;
+    const r = await fetch('/chat', { method: 'POST', headers: {'content-type':'application/json'}, body: JSON.stringify(payload) });
     const j = await r.json();
     dropThinking();
     if (!r.ok) {
@@ -425,6 +499,24 @@ $('question').addEventListener('keydown', e => {
 document.querySelectorAll('.examples button').forEach(b =>
   b.addEventListener('click', () => { $('question').value = b.dataset.q; $('question').focus(); })
 );
+
+// API key field wiring
+$('saveKeyBtn').addEventListener('click', () => {
+  const v = $('apiKey').value.trim();
+  setUserKey(v);
+  if (v) { $('apiKey').value = ''; $('apiKey').placeholder = 'Saved. Paste a new key to replace.'; }
+});
+$('clearKeyBtn').addEventListener('click', () => {
+  setUserKey('');
+  $('apiKey').value = '';
+  $('apiKey').placeholder = 'AIzaSy… (optional — leave blank to use server key)';
+});
+$('apiKey').addEventListener('keydown', e => {
+  if (e.key === 'Enter') { e.preventDefault(); $('saveKeyBtn').click(); }
+});
+
+// Pre-fill placeholder so users see something is already saved.
+if (getUserKey()) $('apiKey').placeholder = 'A key is saved in this browser. Paste a new one to replace.';
 
 loadHealth();
 </script>
