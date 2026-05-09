@@ -1,8 +1,3 @@
-"""Read-only investigation tools.
-
-Each tool is sandboxed: paths must stay inside the repo root. Output is line-
-numbered so the agent's citations naturally include line numbers.
-"""
 from __future__ import annotations
 
 import fnmatch
@@ -11,13 +6,12 @@ import re
 from pathlib import Path
 from typing import Any
 
-MAX_BYTES_PER_READ = 64_000  # ~16k tokens of source
+MAX_BYTES_PER_READ = 64_000
 MAX_LINES_PER_READ = 800
 MAX_GREP_MATCHES = 60
 MAX_FIND_RESULTS = 200
 MAX_TREE_ENTRIES = 800
 
-# Extensions/dirs we never want to peek into.
 EXCLUDED_DIRS = {
     ".git",
     "node_modules",
@@ -52,7 +46,6 @@ class ToolError(Exception):
 
 
 def _safe_resolve(repo_root: Path, rel_path: str) -> Path:
-    """Resolve `rel_path` within `repo_root`. Reject anything that escapes it."""
     if rel_path is None:
         raise ToolError("Missing path.")
     rel_path = rel_path.strip().lstrip("/")
@@ -67,7 +60,6 @@ def _safe_resolve(repo_root: Path, rel_path: str) -> Path:
 
 
 def list_tree(repo_root: Path, path: str = ".", max_depth: int = 2) -> dict[str, Any]:
-    """List directories and files under `path` up to `max_depth` levels deep."""
     target = _safe_resolve(repo_root, path)
     if not target.exists():
         raise ToolError(f"Path not found: {path}")
@@ -85,7 +77,6 @@ def list_tree(repo_root: Path, path: str = ".", max_depth: int = 2) -> dict[str,
         if depth > max_depth:
             dirs[:] = []
             continue
-        # Prune excluded directories in-place.
         dirs[:] = sorted([d for d in dirs if d not in EXCLUDED_DIRS])
         for d in dirs:
             entries.append(str((rel_root / d) / "") if str(rel_root) != "." else f"{d}/")
@@ -116,7 +107,6 @@ def read_file(
     start_line: int = 1,
     end_line: int | None = None,
 ) -> dict[str, Any]:
-    """Read lines [start_line, end_line] (1-indexed, inclusive) from a text file."""
     target = _safe_resolve(repo_root, path)
     if not target.exists():
         raise ToolError(f"File not found: {path}")
@@ -124,14 +114,6 @@ def read_file(
         raise ToolError(f"Not a file: {path}")
     if target.suffix.lower() in BINARY_EXTS:
         raise ToolError(f"Refusing to read binary file: {path}")
-
-    try:
-        size = target.stat().st_size
-    except OSError as e:
-        raise ToolError(f"Cannot stat {path}: {e}")
-    if size > 4 * MAX_BYTES_PER_READ:
-        # File is large; we'll still allow line-range reads but warn the agent.
-        pass
 
     try:
         with target.open("r", encoding="utf-8", errors="replace") as fh:
@@ -158,7 +140,6 @@ def read_file(
         end_line = start_line + MAX_LINES_PER_READ - 1
 
     selected = lines[start_line - 1 : end_line]
-    # Render with line numbers — this is what the model sees and cites against.
     width = len(str(end_line))
     rendered = "".join(
         f"{str(start_line + i).rjust(width)}│{line}" if line.endswith("\n")
@@ -190,7 +171,6 @@ def grep(
     glob: str | None = None,
     case_insensitive: bool = False,
 ) -> dict[str, Any]:
-    """Search for a regex `pattern` in text files under `path`. Returns matches with line numbers."""
     if not pattern:
         raise ToolError("grep: pattern is required.")
     flags = re.IGNORECASE if case_insensitive else 0
@@ -218,7 +198,7 @@ def grep(
                 size = full.stat().st_size
             except OSError:
                 continue
-            if size > 2_000_000:  # skip files over 2 MB
+            if size > 2_000_000:
                 continue
             files_scanned += 1
             try:
@@ -257,7 +237,6 @@ def find_files(
     name_glob: str,
     path: str = ".",
 ) -> dict[str, Any]:
-    """Find files whose name matches the glob (e.g. '*.py', 'auth*.ts')."""
     if not name_glob:
         raise ToolError("find_files: name_glob is required.")
     target = _safe_resolve(repo_root, path)
@@ -283,7 +262,6 @@ def find_files(
     }
 
 
-# Tool dispatch table — used by both investigator and auditor.
 def dispatch(name: str, args: dict[str, Any], repo_root: Path) -> dict[str, Any]:
     if name == "list_tree":
         return list_tree(

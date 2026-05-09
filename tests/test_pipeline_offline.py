@@ -1,12 +1,3 @@
-"""Offline test of the investigator+auditor pipeline.
-
-We don't have a Gemini API key in test, so we replace `client.models.generate_content`
-with a scripted responder. This proves:
-  - the investigator's tool-call loop dispatches our tools correctly
-  - the citation validator runs against the produced answer
-  - the auditor runs in a separate context and returns structured JSON
-  - the claims ledger updates on success
-"""
 from __future__ import annotations
 
 import json
@@ -31,23 +22,15 @@ def _content(parts):
 
 
 def _resp_with_parts(parts):
-    """Build a fake response object shape used by google-genai."""
     cand = MagicMock()
     cand.content = _content(parts)
     resp = MagicMock()
     resp.candidates = [cand]
-    # `.text` is a convenience property on the real SDK response; mirror it
-    # so the auditor's claims-extraction call (which reads resp.text) works.
     resp.text = "".join(p.text for p in parts if getattr(p, "text", None))
     return resp
 
 
 def make_scripted_client(scripted_responses):
-    """scripted_responses is a list of types.Content `.parts` lists.
-
-    Each call to client.models.generate_content pops the next one. If we run
-    out, the test fails with an obvious error (so we notice off-by-one bugs).
-    """
     queue = list(scripted_responses)
     client = MagicMock()
 
@@ -68,10 +51,6 @@ def test_pipeline_end_to_end():
     repo = clone_repo("https://github.com/sindresorhus/is-online", size_cap_mb=20)
     print(f"cloned {repo.slug} → {repo.path}")
 
-    # --- Investigator scripted plan ---
-    # Turn A: list_tree at root
-    # Turn B: read_file package.json lines 1-30
-    # Turn C: write the answer with one good citation and one BAD (hallucinated) citation
     investigator_script = [
         [types.Part.from_function_call(name="list_tree", args={"path": ".", "max_depth": 2})],
         [types.Part.from_function_call(name="read_file", args={"path": "package.json", "start_line": 1, "end_line": 30})],
@@ -103,17 +82,12 @@ def test_pipeline_end_to_end():
     assert run.tool_calls[1].ok is True
     print(f"investigator OK — {run.roundtrips} tool roundtrips, answer={len(run.answer)} chars")
 
-    # --- Citation validator should catch the hallucination ---
     cit = validate_answer(run.answer, repo.path)
     assert cit.total == 2, cit.to_dict()
     assert cit.ok_count == 1
     assert any(not c.is_ok() and "ghosts/notreal.js" in c.path for c in cit.checks)
     print(f"citation validator caught hallucination: {cit.summary()}")
 
-    # --- Auditor scripted plan ---
-    # 1. read_file to spot-check
-    # 2. final JSON verdict
-    # 3. claims-extraction call (no tool calls — direct JSON)
     audit_script = [
         [types.Part.from_function_call(name="read_file", args={"path": "package.json", "start_line": 1, "end_line": 30})],
         [types.Part.from_text(text=json.dumps({
@@ -145,15 +119,11 @@ def test_pipeline_end_to_end():
     assert audit.new_claims == ["is-online package exports isOnline() [package.json:1-15]"]
     print(f"auditor OK — verdict={audit.verdict}, {len(audit.concerns)} concerns, {len(audit.new_claims)} new claims")
 
-    # --- Ledger ---
     ledger = ClaimsLedger()
-    # On 'untrustworthy' the orchestrator does NOT add claims (per app.py policy);
-    # but verify the ledger update path itself works.
     ledger.add_many(audit.new_claims, turn=1)
     assert len(ledger.claims) == 1
     print(f"ledger OK — recent: {ledger.recent_strings()}")
 
-    # Cleanup
     import shutil
     shutil.rmtree(repo.path, ignore_errors=True)
     print("PASS")

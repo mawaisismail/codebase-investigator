@@ -1,14 +1,3 @@
-"""Claims ledger.
-
-After each investigator turn, the auditor extracts a small set of atomic,
-verified claims and appends them here. On the next turn we surface the recent
-ledger to both the investigator (so it stays consistent) and the auditor
-(so it can flag contradictions explicitly).
-
-This is the system's working memory for "what has been established so far."
-It is NOT a transcript of the conversation — for that we keep `history`
-in the session.
-"""
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -32,7 +21,6 @@ class ClaimsLedger:
         text = text.strip()
         if not text:
             return
-        # Dedupe near-identical entries.
         for c in self.claims:
             if c.text == text:
                 return

@@ -1,4 +1,3 @@
-"""Clone and manage public GitHub repositories in session-scoped sandboxes."""
 from __future__ import annotations
 
 import os
@@ -37,13 +36,6 @@ class Repo:
 
 
 def _normalize_github_url(url: str) -> tuple[str, str, str]:
-    """Return (clone_url, owner, repo) from a public GitHub URL.
-
-    Accepts:
-      https://github.com/<owner>/<repo>
-      https://github.com/<owner>/<repo>.git
-      https://github.com/<owner>/<repo>/tree/<branch>/...
-    """
     url = url.strip()
     if not url:
         raise RepoError("Empty URL.")
@@ -76,7 +68,6 @@ def _dir_size_mb(path: Path) -> float:
 
 
 def clone_repo(url: str, size_cap_mb: float = 80.0) -> Repo:
-    """Shallow-clone a public GitHub repo to a session-scoped temp dir."""
     clone_url, owner, name = _normalize_github_url(url)
     session_id = uuid.uuid4().hex[:12]
     target = WORKSPACES_ROOT / session_id
@@ -114,7 +105,6 @@ def clone_repo(url: str, size_cap_mb: float = 80.0) -> Repo:
             raise RepoError(
                 f"Repo is {size:.1f} MB, larger than the {size_cap_mb:.0f} MB cap."
             )
-        # Drop .git to save space and prevent tools from grepping it.
         git_dir = target / ".git"
         if git_dir.exists():
             shutil.rmtree(git_dir, ignore_errors=True)

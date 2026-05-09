@@ -1,4 +1,3 @@
-"""Investigator agent — explores the repo and writes a cited answer."""
 from __future__ import annotations
 
 import json
@@ -102,7 +101,7 @@ def _safe_dispatch(name: str, args: dict[str, Any], repo_root: Path) -> tuple[di
     except repo_tools.ToolError as e:
         err = {"error": str(e)}
         return err, ToolCallRecord(name=name, args=args, ok=False, summary=f"ERROR: {e}")
-    except Exception as e:  # defensive — never crash the loop on a bad tool call
+    except Exception as e:
         err = {"error": f"unexpected: {e}"}
         return err, ToolCallRecord(name=name, args=args, ok=False, summary=f"UNEXPECTED: {e}")
 
@@ -112,7 +111,6 @@ def _build_user_turn(
     repo_slug: str,
     claims_ledger: list[str],
 ) -> str:
-    """Wrap the user question with repo + claims-ledger context."""
     parts = [f"REPO: {repo_slug}", f"QUESTION: {question}"]
     if claims_ledger:
         ledger_text = "\n".join(f"- {c}" for c in claims_ledger[-12:])
@@ -134,20 +132,12 @@ def run_investigator(
     claims_ledger: list[str],
     max_roundtrips: int = MAX_TOOL_ROUNDTRIPS,
 ) -> tuple[InvestigatorRun, list[types.Content]]:
-    """Run one investigator turn.
-
-    Returns (run, updated_history). The updated_history is suitable for the next
-    turn — it contains the user message and the model's final answer (without
-    intermediate tool calls), to keep multi-turn context lean.
-    """
     started = time.time()
     tool = build_tool()
     config = types.GenerateContentConfig(
         system_instruction=SYSTEM_PROMPT,
         tools=[tool],
         temperature=0.2,
-        # Disable automatic function calling; we drive the loop ourselves so we
-        # can record tool calls and enforce a roundtrip cap.
         automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
     )
 
@@ -176,7 +166,6 @@ def run_investigator(
             error = "Empty response from model."
             break
 
-        # Append the model's turn to contents BEFORE replying with tool results.
         contents.append(cand.content)
 
         function_calls = [p.function_call for p in cand.content.parts if p.function_call]
@@ -195,7 +184,6 @@ def run_investigator(
             contents.append(types.Content(role="user", parts=response_parts))
             continue
 
-        # No function calls — model is answering.
         final_text = "".join(t for t in text_parts if t).strip()
         break
     else:
@@ -206,9 +194,6 @@ def run_investigator(
 
     elapsed = time.time() - started
 
-    # Build a slim history for the NEXT turn: prior history + this user message
-    # + the model's final text answer. We drop intermediate tool calls so the
-    # context stays small. The auditor and ledger preserve what's needed.
     if final_text:
         next_history = list(history) + [
             user_content,

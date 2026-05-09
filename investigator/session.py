@@ -1,14 +1,3 @@
-"""In-memory session state.
-
-A Session owns:
-- the cloned repo
-- the conversation `history` (list of google.genai Content objects)
-- the ClaimsLedger
-- a turn counter
-
-Sessions are kept in process memory keyed by `session_id`. Single-process,
-single-user assumption is fine for a local interview build.
-"""
 from __future__ import annotations
 
 import threading

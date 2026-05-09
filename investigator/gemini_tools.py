@@ -1,14 +1,7 @@
-"""Tool declarations for Gemini function calling.
-
-The same four tools are exposed to both the investigator and the auditor.
-Schemas are intentionally minimal — Gemini's schema validator rejects some
-of OpenAPI's looser features, so we stick to type/description/required.
-"""
 from __future__ import annotations
 
 from google.genai import types
 
-# ---------- Schemas ----------
 
 _LIST_TREE = types.FunctionDeclaration(
     name="list_tree",

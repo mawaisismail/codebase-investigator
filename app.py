@@ -1,4 +1,3 @@
-"""FastAPI server orchestrating the investigator + auditor pipeline."""
 from __future__ import annotations
 
 import logging
@@ -41,8 +40,6 @@ STATIC_DIR = Path(__file__).resolve().parent / "static"
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 
-# ---------- request/response models ----------
-
 class CreateRepoBody(BaseModel):
     url: str = Field(..., description="Public GitHub URL.")
 
@@ -60,8 +57,6 @@ class ResetBody(BaseModel):
     session_id: str
     keep_repo: bool = True
 
-
-# ---------- routes ----------
 
 @app.get("/")
 def index() -> FileResponse:
@@ -95,8 +90,6 @@ def create_repo(body: CreateRepoBody) -> dict[str, Any]:
 
 
 def _resolve_client(user_key: str | None) -> genai.Client:
-    """Return a Gemini client. User-supplied keys take precedence over the
-    server's GEMINI_API_KEY. The user's key is NEVER persisted server-side."""
     user_key = (user_key or "").strip()
     if user_key:
         try:
@@ -127,7 +120,6 @@ def chat(body: ChatBody) -> dict[str, Any]:
     session.turn_count += 1
     turn_idx = session.turn_count
 
-    # 1. Investigator
     inv_run, next_history = investigator_mod.run_investigator(
         client=chat_client,
         model=GEMINI_MODEL,
@@ -138,7 +130,6 @@ def chat(body: ChatBody) -> dict[str, Any]:
         claims_ledger=session.ledger.recent_strings(),
     )
     if inv_run.error and not inv_run.answer:
-        # Don't bump history on hard failure.
         log.warning("Turn %d investigator error: %s", turn_idx, inv_run.error)
         return {
             "session_id": session.session_id,
@@ -147,10 +138,8 @@ def chat(body: ChatBody) -> dict[str, Any]:
             "tool_calls": [t.to_dict() for t in inv_run.tool_calls],
         }
 
-    # 2. Programmatic citation check
     citation_report = validate_answer(inv_run.answer, session.repo.path)
 
-    # 3. Auditor — separate call, fresh context
     audit = auditor_mod.run_auditor(
         client=chat_client,
         model=GEMINI_AUDITOR_MODEL,
@@ -161,11 +150,9 @@ def chat(body: ChatBody) -> dict[str, Any]:
         prior_claims=session.ledger.recent_strings(),
     )
 
-    # 4. Update ledger from audit's extracted claims (only on non-untrustworthy)
     if audit.verdict in {"trust", "caution"} and audit.new_claims:
         session.ledger.add_many(audit.new_claims, turn=turn_idx)
 
-    # 5. Persist updated history (slim — drops intermediate tool calls)
     session.history = next_history
 
     record = TurnRecord(

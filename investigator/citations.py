@@ -1,23 +1,3 @@
-"""Programmatic citation validator.
-
-The investigator is asked to cite specific files and line ranges in a strict
-format. This module verifies those citations against the actual repo before
-the LLM auditor sees the answer — hallucinated paths or line ranges get
-flagged with zero token cost.
-
-Citation format the investigator is instructed to use:
-
-    [path/to/file.py:42-58]
-
-Optional code blocks following a citation are also verified to byte-match
-the file contents on those lines:
-
-    [path/to/file.py:42-58]
-    ```python
-    def foo():
-        ...
-    ```
-"""
 from __future__ import annotations
 
 import re
@@ -25,12 +5,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-# Matches [path:start-end] or [path:line]. Allows reasonable path chars.
 CITATION_RE = re.compile(
     r"\[([A-Za-z0-9_./\-]+?\.[A-Za-z0-9]+|[A-Za-z0-9_./\-]+):(\d+)(?:-(\d+))?\]"
 )
-
-# Matches ```lang\n<code>\n``` blocks immediately following a citation.
 FENCE_RE = re.compile(r"```(?:[A-Za-z0-9_+\-]*)\n(.*?)```", re.DOTALL)
 
 
@@ -44,7 +21,7 @@ class CitationCheck:
     range_valid: bool = False
     total_lines: int | None = None
     snippet_present: bool = False
-    snippet_matches: bool | None = None  # None if no snippet to verify
+    snippet_matches: bool | None = None
     issue: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
@@ -119,13 +96,6 @@ def _read_lines(path: Path) -> list[str] | None:
 
 
 def _normalize(s: str) -> str:
-    """Whitespace-normalize for snippet comparison.
-
-    The agent may indent or wrap differently than the source, so we compare
-    lines after stripping trailing whitespace and collapsing runs of internal
-    whitespace. This is intentionally lenient: it catches outright fabrication
-    while tolerating cosmetic differences.
-    """
     return re.sub(r"[ \t]+", " ", s.rstrip())
 
 
@@ -139,8 +109,6 @@ def _snippet_matches(snippet: str, file_lines: list[str], start: int, end: int) 
     file_window = [ln for ln in file_window if ln != ""]
     if not file_window:
         return False
-    # Subsequence match: each non-empty snippet line must appear in order in
-    # the file window. Tolerates the agent omitting lines for brevity.
     i = 0
     for fl in file_window:
         if i < len(snippet_lines) and snippet_lines[i] == fl:
@@ -149,7 +117,6 @@ def _snippet_matches(snippet: str, file_lines: list[str], start: int, end: int) 
 
 
 def validate_answer(answer_text: str, repo_root: Path) -> CitationReport:
-    """Walk citations in `answer_text` and verify each against `repo_root`."""
     report = CitationReport()
     base = repo_root.resolve()
 
@@ -161,7 +128,6 @@ def validate_answer(answer_text: str, repo_root: Path) -> CitationReport:
 
         check = CitationCheck(raw=raw, path=rel, start=start, end=end)
 
-        # Resolve safely
         candidate = (base / rel).resolve()
         try:
             candidate.relative_to(base)
@@ -189,9 +155,7 @@ def validate_answer(answer_text: str, repo_root: Path) -> CitationReport:
             continue
         check.range_valid = True
 
-        # Look for an immediately-following code block.
         tail = answer_text[match.end() : match.end() + 4000]
-        # Strip leading whitespace/newlines before the fence.
         leading = re.match(r"\s*", tail).group(0)
         fence = FENCE_RE.match(tail[len(leading) :])
         if fence:

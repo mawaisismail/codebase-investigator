@@ -1,16 +1,3 @@
-"""Auditor agent — second-opinion review of the investigator's answer.
-
-Design constraints from the brief:
-- Audit must come from a SEPARATE context — not self-scoring in the same call.
-- We deliberately give the auditor the user's question + the final answer +
-  tool access, but NOT the investigator's chain of thought, system prompt,
-  or its tool history. It re-derives its own evidence.
-- We pre-run a programmatic citation check and pass the result to the auditor
-  so cheap deterministic findings don't burn tokens.
-- We pass recent prior claims so the auditor can flag self-contradictions.
-
-Output is structured JSON. The UI renders it as a trust badge + bullets.
-"""
 from __future__ import annotations
 
 import json
@@ -124,7 +111,6 @@ def _build_audit_user_message(
 def _strip_json_fences(text: str) -> str:
     t = text.strip()
     if t.startswith("```"):
-        # remove first fence line and trailing fence
         lines = t.splitlines()
         if lines and lines[0].startswith("```"):
             lines = lines[1:]
@@ -144,12 +130,6 @@ def _claims_extraction_prompt(answer: str) -> str:
 
 
 def _extract_new_claims(client: genai.Client, model: str, answer: str) -> list[str]:
-    """A tiny third call to distill claims for the ledger.
-
-    This is intentionally separate from the audit so the audit's "concerns" and
-    the ledger's "what was asserted" don't get tangled. Failures here are
-    non-fatal — the ledger just doesn't grow.
-    """
     try:
         resp = client.models.generate_content(
             model=model,
